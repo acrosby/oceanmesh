@@ -794,12 +794,12 @@ def _clip_polys(polys, bbox, delta=0.10):
                 if pi.geom_type == "Polygon":
                     pi = shapely.geometry.MultiPolygon([pi])
 
-                for ppi in pi.geoms:
-                    xy = np.asarray(ppi.exterior.coords)
-                    xy = np.vstack((xy, xy[0]))
-                    out = np.vstack((out, xy, [nan, nan]))
+                    for ppi in pi.geoms:
+                        xy = np.asarray(ppi.exterior.coords)
+                        xy = np.vstack((xy, xy[0]))
+                        out = np.vstack((out, xy, [nan, nan]))
 
-                del (ppi, xy)
+                        del (ppi, xy)
             del pi
         del (p, mp)
 
@@ -1037,8 +1037,7 @@ class Shoreline(Region):
     def minimum_area_mult(self, value):
         if value <= 0.0:
             raise ValueError(
-                "Minimum area multiplier * h0**2 to "
-                " prune inner geometry must be > 0.0"
+                "Minimum area multiplier * h0**2 to  prune inner geometry must be > 0.0"
             )
         self.__minimum_area_mult = value
 
