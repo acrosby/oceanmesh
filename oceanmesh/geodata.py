@@ -272,8 +272,6 @@ def _read_dem_array_and_meta(dem_path, bbox, crs, region_bbox, region_crs):
     open_target = _pick_netcdf_open_target(dem_path, bbox, crs)
 
     ds = rxr.open_rasterio(open_target)
-    if ds.rio.crs is None:  # assume GCS EPSG 4326
-        ds.rio.write_crs(4326)
     with ds.rio.to_rasterio_dataset() as src:
         nodata_value = src.nodata
         meta = src.meta
