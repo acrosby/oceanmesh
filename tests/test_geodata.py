@@ -5,20 +5,25 @@ import pytest
 from oceanmesh import DEM, Region, Shoreline, edges
 
 fname = os.path.join(os.path.dirname(__file__), "GSHHS_i_L1.shp")
+g12name = os.path.join(os.path.dirname(__file__), "gebco_c12.parquet")
 dfname = os.path.join(os.path.dirname(__file__), "galv_sub.nc")
 tfname = os.path.join(os.path.dirname(__file__), "galv_sub.tif")
 
 
 @pytest.mark.parametrize(
-    "boxes_h0",
-    [((166.0, 176.0, -48.0, -40.0), 0.01), ((-74.0, -70.0, 35.0, 42.0), 0.005)],
+    "files_boxes_h0",
+    [
+        (fname, (166.0, 176.0, -48.0, -40.0), 0.01),
+        (fname, (-74.0, -70.0, 35.0, 42.0), 0.005),
+        (g12name, (-98.0, -50.0, 5.0, 48.0), 0.1),
+    ],
 )
-def test_shoreline(boxes_h0):
+def test_shoreline(files_boxes_h0):
     """Read in a shapefile at different scales h0
     shoreline and test you get the write output"""
-    bbox, h0 = boxes_h0
+    fpath, bbox, h0 = files_boxes_h0
     region = Region(bbox, 4326)
-    shp = Shoreline(fname, region.bbox, h0, crs=region.crs)
+    shp = Shoreline(fpath, region.bbox, h0, crs=region.crs)
     assert len(shp.inner) > 0
     assert len(shp.mainland) > 0
     e = edges.get_poly_edges(shp.inner)
