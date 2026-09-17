@@ -7,6 +7,8 @@ from oceanmesh import DEM, Region, Shoreline, edges
 fname = os.path.join(os.path.dirname(__file__), "GSHHS_i_L1.shp")
 dfname = os.path.join(os.path.dirname(__file__), "galv_sub.nc")
 tfname = os.path.join(os.path.dirname(__file__), "galv_sub.tif")
+asort_dem_path = os.path.join(os.path.dirname(__file__), "gebco2023_wnatl_a-sorted.nc")
+bsort_dem_path = os.path.join(os.path.dirname(__file__), "gebco2023_wnatl_b-sorted.nc")
 
 
 @pytest.mark.parametrize(
@@ -127,3 +129,10 @@ def test_geodata(files_bboxes):
     region = Region(bbox, 4326)
     dem = DEM(f, bbox=region, crs=region.crs)
     assert isinstance(dem, DEM), "DEM class did not form"
+
+
+def test_dem_latsort():
+    reg = Region((-98.0, -50.0, 5.0, 48.0), 4326)
+    a_dem = DEM(asort_dem_path, bbox=reg, crs=4326)
+    b_dem = DEM(bsort_dem_path, bbox=reg, crs=4326)
+    assert (a_dem.values == b_dem.values).all()
