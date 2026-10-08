@@ -1,9 +1,177 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import shapely
+import geopandas as gpd
 
 from .edges import get_winded_boundary_edges
 
-__all__ = ["identify_ocean_boundary_sections"]
+__all__ = [
+    "identify_ocean_boundary_sections",
+    "ordered_exterior_point_feat",
+    "gdf_exterior_view_gdf",
+    "gdf_simple_assign_exterior_ibtype",
+    "gdf_simple_assign_ibtype_by_thresh",
+]
+
+
+def mesh_union_polygon_feat(points, cells, crs=None):
+    elats = points[cells.ravel(), 1]
+    elons = points[cells.ravel(), 0]
+    ncell = cells.shape[0]
+    _elons = elons.reshape((ncell, 3))
+    _elats = elats.reshape((ncell, 3))
+    _pinput = [
+        shapely.Polygon(tuple(list(zip(_[0], _[1])))) for _ in zip(_elons, _elats)
+    ]
+    tris_gdf = gpd.GeoDataFrame(geometry=_pinput, crs=crs)
+    assert tris_gdf.is_valid.all()
+    return tris_gdf.union_all()
+
+
+def mesh_union_exterior_feat(points, cells, crs=None):
+    domain_poly = mesh_union_polygon(points, cells, crs=crs)
+    return (domain_poly.exterior, domain_poly)
+
+
+def ordered_exterior_point_feat(points, cells, crs=None):
+    ext_line, poly = mesh_union_exterior(points, cells, crs=None)
+    return (ext_line.xy, ext_line, poly)
+
+
+def gdf_exterior_view_gdf(gdf, ext_feat):
+    return gdf.loc[ext_feat, :]
+
+
+def gdf_simple_assign_exterior_ibtype(gdf, ext_feat, ibtype=20):
+    which_ext_nodes = gdf.geometry.intersects(ext_feat).values
+    gdf.loc[which_ext_nodes, "ibtype"] = ibtype
+    return gdf
+
+
+def gdf_simple_assign_ibtype_by_thresh(
+    gdf, val, column="depth", ibtype=-1, valid_lessthan=True
+):
+    if valid_lessthan:
+        which_nodes = gdf[column] < val
+    else:
+        which_nodes = gdf[column] > val
+    gdf.loc[which_nodes, "ibtype"] = -1
+    return gdf
+
+
+def mesh_union_interior_feat(domain_poly, ibtype=21):
+    _interior_nodes = shapely.unary_union(domain_poly.interiors)
+    # bound_geos = [(21, _interior_nodes)]
+    return _interior_nodes
+
+
+def gdf_order_boundary_sections(
+    gdf, ext_feat, other_bounds: list[tuple[int, shapely.LineString]] = []
+):
+    bound_section_counts = {}
+    # Exterior tidal and land boundaries
+    # uses existing ibtype column data
+    edf = gdf.loc[ext_feat]
+    vals = edf.ibtype.values
+    node = edf.node.values
+    geoindex = edf.index.values
+    splits = np.where(np.abs((vals[1:] - vals[:-1])) > 0)[0] + 1
+    splitibt = np.split(vals, splits)
+    splitnode = np.split(node, splits)
+    splitidx = np.split(geoindex, splits)
+    for _ib, _nodes, _idx in zip(splitibt, splitnode, splitidx):
+        _ibtype = int(_ib[0])
+        if _ibtype not in bound_section_counts:
+            bound_section_counts[_ibtype] = 1
+        else:
+            bound_section_counts[_ibtype] += 1
+        gdf.loc[_idx, "ibtype"] = _ibtype
+        gdf.loc[_idx, "ib_section"] = bound_section_counts[_ibtype]
+        gdf.loc[_idx, "ib_order"] = np.arange(_nodes.shape[0])
+
+    # Internal island and other boundaries not on exterior ring
+    for _thisbound in bound_geos:
+        _ibtype, _thismultigeom = _thisbound
+        for _ in _thismultigeom.geoms:
+            geom_ordered_intersection = gpd.points_from_xy(x=_.xy[0], y=_.xy[1])
+            if _ibtype not in bound_section_counts:
+                bound_section_counts[_ibtype] = 1
+            else:
+                bound_section_counts[_ibtype] += 1
+            gdf.loc[geom_ordered_intersection, "ibtype"] = _ibtype
+            gdf.loc[geom_ordered_intersection, "ib_section"] = bound_section_counts[
+                _ibtype
+            ]
+            gdf.loc[geom_ordered_intersection, "ib_order"] = np.arange(
+                gdf.loc[geom_ordered_intersection].shape[0]
+            )
+    return gdf
+
+
+def plot_gdf_bounds(
+    points,
+    cells,
+    gdf,
+    xlim=None,
+    ylim=None,
+    mesh_style={"color": "k", "lw": 0.04},
+    ib_styles={
+        -1: {"c": "r", "s": "5."},
+        20: {"c": "navy", "s": 0.4},
+        21: {"c": "g", "s": 3.0},
+    },
+):
+    plt.triplot(points[:, 0], points[:, 1], cells, **mesh_style)
+    for z, ibtype in enumerate(ib_styles.keys()):
+        _ibgdf = gdf.loc[gdf.ibtype == ibtype]
+        plt.scatter(
+            _ibgdf.lon.values, _ibgdf.lat.values, **ib_styles[ibtype], zorder=10 + z
+        )
+    if xlim is not None:
+        plt.xlim(xlim)
+    if ylim is not None:
+        plt.ylim(ylim)
+    return plt.gca()
+
+
+def naive_exterior_and_island_boundary_classification(
+    points,
+    cells,
+    crs=None,
+    ibtype={"interior": 21, "mainland": 20, "tide_elev": -1},
+    tide_elev_bound_depth_thresh=-50.0,
+    depth_column="depth",
+):
+    ext_point, ext_line, domain_poly = ordered_exterior_point_feat(
+        points, cells, crs=crs
+    )
+    gdf = _node2gdf(points, cells, crs=crs)
+    gdf = gdf_simple_assign_exterior_ibtype(gdf, ext_point, ibtype=ibtype["exterior"])
+    gdf.loc[ext_point, :] = gdf_simple_assign_ibtype_by_thresh(
+        gdf.loc[ext_point, :],
+        tide_elev_bound_depth_thresh,
+        column=depth_column,
+        ibtype=ibtype["tide_elev"],
+    )
+    _interior = mesh_union_interior_feat(domain_poly)
+    gdf = gdf_order_boundary_sections(
+        gdf, ext_point, other_bounds=[(ibtype["interior"], _interior)]
+    )
+    return gdf
+
+
+def _node2gdf(points, cells, crs=None):
+    gdf = gpd.GeoDataFrame(
+        geometry=gpd.points_from_xy(x=points[:, 0], y=points[:, 1]), crs=crs
+    )
+    gdf["depth"] = np.nan
+    gdf["lat"] = points[:, 1]
+    gdf["lon"] = points[:, 0]
+    gdf["node"] = np.arange(points.shape[0])
+    gdf["ibtype"] = -99
+    gdf["bound_sort"] = np.nan
+    gdf.index = gdf.geometry
+    return gdf
 
 
 def identify_ocean_boundary_sections(
