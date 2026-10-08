@@ -1202,7 +1202,14 @@ class DEM(Grid):
     Digitial elevation model read in from a tif or NetCDF file
     """
 
-    def __init__(self, dem, crs="EPSG:4326", bbox=None, extrapolate=False):
+    def __init__(
+        self,
+        dem,
+        crs="EPSG:4326",
+        bbox=None,
+        extrapolate=False,
+        float_precision=np.float32,
+    ):
         """Read in a DEM from a tif or NetCDF file for later use
         in developing mesh sizing functions.
 
@@ -1218,6 +1225,8 @@ class DEM(Grid):
             bbox extents and Region CRS are used. If None, the entire DEM is read.
         extrapolate : bool, optional
             Extrapolate the DEM outside the bounding box, by default False
+        float_precision: type, optional
+            Specify the float precision of the topobathy array, default is numpy.float32 (single precision).
         """
 
         if isinstance(dem, str):
@@ -1239,11 +1248,10 @@ class DEM(Grid):
             )
             self.meta = meta
 
-            topobathy = topobathy.astype(np.float32)
+            topobathy = topobathy.astype(float_precision)
             topobathy[topobathy == nodata_value] = np.nan
         elif not dem.exists():
             raise FileNotFoundError(f"File {dem} could not be located.")
-
         super().__init__(
             bbox=bbox,
             crs=crs,
