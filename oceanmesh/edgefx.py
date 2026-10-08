@@ -114,9 +114,9 @@ def enforce_mesh_gradation(grid, gradation=0.15, crs="EPSG:4326", stereo=False):
     logger.info(f"Enforcing mesh size gradation of {gradation} decimal percent...")
 
     elen = grid.dx
-    assert (
-        grid.dx == grid.dy
-    ), "Structured grids with unequal grid spaces not yet supported"
+    assert np.isclose(grid.dx, grid.dy), (
+        "Structured grids with unequal grid spaces not yet supported"
+    )
     cell_size = grid.values.copy()
     sz = cell_size.shape
     sz = (sz[0], sz[1], 1)
@@ -229,13 +229,13 @@ def distance_sizing_from_line_function(
     """
     logger.info("Building a distance sizing from point function...")
     line_geodataframe = gpd.read_file(line_file)
-    assert (
-        line_geodataframe.crs == crs
-    ), "The crs of the point geodataframe must match the crs of the grid"
+    assert line_geodataframe.crs == crs, (
+        "The crs of the point geodataframe must match the crs of the grid"
+    )
     # check all the geometries are points
-    assert all(
-        line_geodataframe.geometry.geom_type == "LineString"
-    ), "All geometries must be linestrings"
+    assert all(line_geodataframe.geometry.geom_type == "LineString"), (
+        "All geometries must be linestrings"
+    )
 
     # Resample the spacing along the lines so that the minimum edge length is met
     line_geodataframe = line_geodataframe.apply(
@@ -316,13 +316,13 @@ def distance_sizing_from_point_function(
     '''
     logger.info("Building a distance sizing from point function...")
     point_geodataframe = gpd.read_file(point_file)
-    assert (
-        point_geodataframe.crs == crs
-    ), "The crs of the point geodataframe must match the crs of the grid"
+    assert point_geodataframe.crs == crs, (
+        "The crs of the point geodataframe must match the crs of the grid"
+    )
     # check all the geometries are points
-    assert all(
-        point_geodataframe.geometry.geom_type == "Point"
-    ), "All geometries must be points"
+    assert all(point_geodataframe.geometry.geom_type == "Point"), (
+        "All geometries must be points"
+    )
     # Get the coordinates of the points from the geodataframe
     points = np.array(point_geodataframe.geometry.apply(lambda x: (x.x, x.y)).tolist())
     # Create a mesh size function grid
@@ -688,7 +688,7 @@ def rossby_radius_filter(tmpz, bbox, grid_details, coords, rbfilt, barot):
             if edges[i] > 0:
                 mult = 2 ** edges[i]
                 xl, xu = 1, nx
-                if ((np.max(xg) > 179 and np.min(xg) < -179)) or (
+                if (np.max(xg) > 179 and np.min(xg) < -179) or (
                     np.max(xg) > 359 and np.min(xg) < 1
                 ):
                     # wraps around
