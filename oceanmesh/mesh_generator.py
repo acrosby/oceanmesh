@@ -33,8 +33,139 @@ __all__ = [
     "plot_mesh_connectivity",
     "plot_mesh_bathy",
     "write_to_fort14",
+    "gdf_to_fort14",
     "write_to_t3s",
 ]
+
+
+def gdf_to_fort14(
+    points,
+    cells,
+    filepath,
+    gdf=None,
+    topobath_column="depth",
+    project_name="Created with oceanmesh",
+    flip_bathymetry=False,
+):
+    """
+    Parameters
+    -----------
+    points (numpy.ndarray): An array of shape (np, 2) containing the x, y coordinates of the mesh nodes.
+    cells (numpy.ndarray): An array of shape (ne, 3) containing the indices of the nodes that form each mesh element.
+    filepath (str): The file path to write the fort.14 file to.
+    gdf (pandas.DataFrame):
+    topobath_column (str):
+    project_name (str): The name of the project to be written to the fort.14 file.
+    flip_bathymetry (bool): If True, the bathymetry values will be multiplied by -1.
+
+    Returns:
+    --------
+    """
+    logger.info("Exporting mesh to fort.14 file...")
+
+    # Calculate number of nodes and elements
+    npoints = np.size(points, 0)
+    nelements = np.size(cells, 0)
+
+    if "depth" in gdf:
+        topobathymetry = gdf.depth.values
+
+        if flip_bathymetry:
+            topobathymetry = -1 * gdf.depth.values
+    else:
+        topobathymetry = None
+    if topobathymetry is not None:
+        assert len(topobathymetry) == npoints, (
+            "topobathymetry must be the same length as points"
+        )
+    else:
+        topobathymetry = np.zeros((npoints, 1))
+
+    # Shift cell indices by 1 (fort.14 uses 1-based indexing)
+    _cells = cells + 1
+
+    # Open in-memory file for writing
+    with open(filepath, "w") as f_id:
+        # Write mesh name
+        if flip_bathymetry:
+            f_id.write(f"{project_name} (bathymetry flipped) \n")
+        else:
+            f_id.write(f"{project_name} \n")
+
+        # Write number of nodes and elements
+        np.savetxt(
+            f_id,
+            np.column_stack((nelements, npoints)),
+            delimiter=" ",
+            fmt="%i",
+            newline="\n",
+        )
+
+        # Write node coordinates
+        for k in range(npoints):
+            np.savetxt(
+                f_id,
+                np.column_stack((k + 1, points[k][0], points[k][1], topobathymetry[k])),
+                delimiter=" ",
+                fmt="%i %f %f %f",
+                newline="\n",
+            )
+
+        # Write element connectivity
+        for k in range(nelements):
+            np.savetxt(
+                f_id,
+                np.column_stack((k + 1, 3, _cells[k][0], _cells[k][1], _cells[k][2])),
+                delimiter=" ",
+                fmt="%i %i %i %i %i ",
+                newline="\n",
+            )
+
+        if gdf is not None:
+            _df = gdf
+            if "ibtype" not in _df:
+                # Write zero for each boundary condition (4 total)
+                for k in range(4):
+                    f_id.write("%d \n" % 0)
+            else:
+                _df.index = _df.geometry
+                if (_df.ibtype == -1).any():
+                    n_elev_sec = 1
+                    f_id.write(f"{n_elev_sec} = number of elev bound sections\n")
+                    n_elev_node = (_df.ibtype == -1).sum()
+                    f_id.write(f"{n_elev_node} = total number of elev bound node\n")
+                    for isec in _df.loc[_df.ibtype == -1].ib_section.unique():
+                        _nodes = (
+                            _df.loc[(_df.ibtype == -1) & (_df.ib_section == isec)]
+                            .sort_values("ib_order")
+                            .node.values
+                        )
+                        f_id.write(f"{len(_nodes)} 0 = number of nodes in this sec\n")
+                        np.savetxt(f_id, _nodes + 1, fmt="%u")
+                else:
+                    n_elev_sec = 0
+                    f_id.write(f"{n_elev_sec}\n")
+                other_bounds = _df.loc[_df.ibtype.apply(lambda x: x not in {-1, -99})]
+                n_node_tot = other_bounds.shape[0]
+                n_sec = (other_bounds.ib_order == 1).sum()
+                f_id.write(f"{n_sec} = number of sections\n")
+                f_id.write(f"{n_node_tot} = total number of nodes for all sections\n")
+                for ibtype in other_bounds.ibtype.unique():
+                    for isec in other_bounds.ib_section.unique():
+                        _nodes = (
+                            other_bounds[
+                                (other_bounds.ibtype == ibtype)
+                                & (other_bounds.ib_section == isec)
+                            ]
+                            .sort_values("ib_order")
+                            .node.values
+                        )
+                        f_id.write(
+                            f"{len(_nodes)} {ibtype} = number of nodes in this {ibtype} sec\n"
+                        )
+                        np.savetxt(f_id, _nodes + 1, fmt="%u")
+
+    logger.info(f"Wrote the mesh to {filepath}...")
 
 
 def write_to_fort14(
@@ -68,9 +199,9 @@ def write_to_fort14(
     nelements = np.size(cells, 0)
 
     if topobathymetry is not None:
-        assert (
-            len(topobathymetry) == npoints
-        ), "topobathymetry must be the same length as points"
+        assert len(topobathymetry) == npoints, (
+            "topobathymetry must be the same length as points"
+        )
     else:
         topobathymetry = np.zeros((npoints, 1))
 
@@ -638,12 +769,12 @@ def generate_multiscale_mesh(domains, edge_lengths, **kwargs):
     * Domain metadata (CRS, stereo flags) is collected internally to manage automatic coordinate transformations.
 
     """
-    assert (
-        len(domains) > 1 and len(edge_lengths) > 1
-    ), "This function takes a list of domains and sizing functions"
-    assert len(domains) == len(
-        edge_lengths
-    ), "The same number of domains must be passed as sizing functions"
+    assert len(domains) > 1 and len(edge_lengths) > 1, (
+        "This function takes a list of domains and sizing functions"
+    )
+    assert len(domains) == len(edge_lengths), (
+        "The same number of domains must be passed as sizing functions"
+    )
 
     # Perform validation prior to any mesh generation steps
     ok, verrors = _validate_multiscale_domains(domains, edge_lengths)
